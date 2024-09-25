@@ -1,29 +1,45 @@
 import { createServer } from 'http';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
+import {
+  SECRET_HEADER_NAME,
+  SECRET_HEADER_VALUE,
+  SERVER_PORT,
+} from './config.js';
 
 const host = '0.0.0.0';
-const port = 9003;
 
 const DATABASE_FILE = 'db.json';
 
-const readDb = () =>
-  JSON.parse(readFileSync(DATABASE_FILE, { encoding: 'utf8' }));
-const writeDb = (db) =>
-  writeFileSync(DATABASE_FILE, JSON.stringify(db, null, 4), {
+const readDb = (hostname) => {
+  const dbFileName = `${hostname}.${DATABASE_FILE}`;
+
+  if (!existsSync(dbFileName)) {
+    writeDb(hostname, { ip: '', lastPing: '', pings: [] });
+  }
+
+  return JSON.parse(readFileSync(dbFileName, { encoding: 'utf8' }));
+};
+
+const writeDb = (hostname, db) =>
+  writeFileSync(`${hostname}.${DATABASE_FILE}`, JSON.stringify(db, null, 4), {
     encoding: 'utf8',
   });
-
-if (!existsSync(DATABASE_FILE)) {
-  writeDb({});
-}
 
 const handlePing = (req, res) => {
   const hostname = req.headers['hostname'];
   const ip = req.socket.remoteAddress;
 
-  const db = readDb();
-  db[hostname] = { ip, lastPing: new Date().toISOString() };
-  writeDb(db);
+  const lastPing = new Date().toISOString();
+
+  const pings = readDb(hostname).pings.slice(0, 1000);
+  pings.unshift(lastPing);
+
+  const db = {
+    ip,
+    lastPing,
+    pings,
+  };
+  writeDb(hostname, db);
 
   res.statusCode = 202;
   res.end();
@@ -33,11 +49,15 @@ const handleRootGet = (req, res) => {
   const db = readDb();
 
   res.setHeader('Content-Type', 'text/html');
-  res.end(`<pre>${JSON.stringify(db, null, 4)}</pre>`);
+  res.end(`:)`);
 };
 
 const server = createServer((req, res) => {
   console.log(new Date().toISOString(), req.method, req.url);
+  if (req.headers[SECRET_HEADER_NAME] !== SECRET_HEADER_VALUE) {
+    res.statusCode = 400;
+    res.end();
+  }
 
   const hostname = req.headers['hostname'];
   const isPost = req.method === 'POST';
@@ -56,6 +76,7 @@ const server = createServer((req, res) => {
   res.statusCode = 400;
   res.end();
 });
-server.listen(port, host, () => {
-  console.log(`Server is running on http://${host}:${port}`);
+
+server.listen(SERVER_PORT, host, () => {
+  console.log(`Server is running on http://${host}:${SERVER_PORT}`);
 });
